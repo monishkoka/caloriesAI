@@ -1,11 +1,11 @@
-import { ActivityLevel, GoalPace, GoalType } from '@types';
+import { ActivityLevel, GoalPace, GoalType, Sex } from '@types';
 
 /**
- * Domain constants used by the (future) calculation engine. Centralizing them
+ * Domain constants used by the nutrition calculation engine. Centralizing them
  * keeps the science in one auditable place.
  */
 
-/** Physical Activity Level multipliers applied to BMR to estimate TDEE. */
+/** Physical Activity Level multipliers applied to BMR to estimate maintenance. */
 export const ACTIVITY_MULTIPLIERS: Record<ActivityLevel, number> = {
   sedentary: 1.2,
   light: 1.375,
@@ -13,6 +13,36 @@ export const ACTIVITY_MULTIPLIERS: Record<ActivityLevel, number> = {
   active: 1.725,
   very_active: 1.9,
 };
+
+/**
+ * Sex-specific constant added in the Mifflin-St Jeor BMR equation.
+ * `other` uses the midpoint of the male/female constants.
+ */
+export const MIFFLIN_SEX_CONSTANT: Record<Sex, number> = {
+  male: 5,
+  female: -161,
+  other: -78,
+};
+
+/**
+ * Fixed daily calorie delta (kcal) applied to maintenance per goal.
+ * Fat loss: -500, Lean bulk: +300, Maintain/recomp: 0.
+ */
+export const GOAL_CALORIE_DELTAS: Record<GoalType, number> = {
+  lose_fat: -500,
+  maintain: 0,
+  build_muscle: 300,
+  recomp: 0,
+};
+
+/** Protein target in grams per kilogram of bodyweight. */
+export const PROTEIN_G_PER_KG = 2;
+
+/** Fat target in grams per kilogram of bodyweight. */
+export const FAT_G_PER_KG = 0.8;
+
+/** Approximate energy content of one kilogram of body fat (kcal). */
+export const KCAL_PER_KG_FAT = 7700;
 
 /**
  * Daily calorie adjustment (kcal) per goal/pace combination.

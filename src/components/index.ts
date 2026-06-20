@@ -6,5 +6,6 @@ export { Button } from './ui/Button';
 export { Card } from './ui/Card';
 export { Input } from './ui/Input';
 export { ProgressBar } from './ui/ProgressBar';
+export { ProgressRing } from './ui/ProgressRing';
 export { OptionCard } from './ui/OptionCard';
 export { PlaceholderScreen } from './feedback/PlaceholderScreen';

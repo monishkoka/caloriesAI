@@ -7,6 +7,8 @@ export {
   authService,
   firestoreService,
   userProfileService,
+  nutritionService,
+  metricsService,
   collections,
 } from './firebase';
 export { openAiService } from './ai/openai.service';

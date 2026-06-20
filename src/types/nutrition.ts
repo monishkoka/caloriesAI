@@ -10,6 +10,21 @@ export interface Macros {
 }
 
 /**
+ * The set of calorie figures derived from a user's BMR and activity level.
+ * Surfaced on the dashboard so the user can compare goals at a glance.
+ */
+export interface CaloriePlan {
+  /** Basal Metabolic Rate (kcal/day), Mifflin-St Jeor. */
+  bmr: number;
+  /** Maintenance calories = BMR × activity multiplier. */
+  maintenanceCalories: number;
+  /** Maintenance − 500. */
+  fatLossCalories: number;
+  /** Maintenance + 300. */
+  leanBulkCalories: number;
+}
+
+/**
  * Daily nutrition targets derived from TDEE, goal and macro split strategy.
  * These are the numbers the dashboard "rings" track against.
  */

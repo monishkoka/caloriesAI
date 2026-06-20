@@ -1,43 +1,161 @@
-import { BodyMetrics, GoalSettings, NutritionTargets } from '@types';
+import {
+  ActivityLevel,
+  BodyMetrics,
+  CaloriePlan,
+  GoalSettings,
+  GoalType,
+  Macros,
+  NutritionTargets,
+} from '@types';
+
+import {
+  ACTIVITY_MULTIPLIERS,
+  FAT_G_PER_KG,
+  GOAL_CALORIE_DELTAS,
+  KCAL_PER_GRAM,
+  KCAL_PER_KG_FAT,
+  MIFFLIN_SEX_CONSTANT,
+  PROTEIN_G_PER_KG,
+} from './constants';
+import { toISO } from './formatters';
 
 /**
- * Calorie & macro calculation engine — SIGNATURES ONLY.
+ * Nutrition calculation engine.
  *
- * This module will own all of the energy-balance math: BMR (Mifflin-St Jeor),
- * TDEE, deficit/surplus, and macro distribution. Implementations are
- * intentionally left as TODOs per the architecture-only scope.
+ * A set of pure, reusable functions implementing the energy-balance math:
+ * BMR (Mifflin-St Jeor) → maintenance → goal calories → macro distribution.
+ * Every function is side-effect free and rounds to whole numbers for display.
  */
 
-/** Estimate Basal Metabolic Rate (kcal/day) via Mifflin-St Jeor. */
-export function calculateBMR(_body: BodyMetrics): number {
-  // TODO: 10*kg + 6.25*cm - 5*age + sexConstant
-  throw new Error('calculateBMR not implemented');
+/**
+ * Basal Metabolic Rate (kcal/day) via the Mifflin-St Jeor equation:
+ *
+ *   BMR = 10·kg + 6.25·cm − 5·age + sexConstant
+ *
+ * where sexConstant is +5 (male), −161 (female), −78 (other/midpoint).
+ */
+export function calculateBMR(body: BodyMetrics): number {
+  const base =
+    10 * body.currentWeightKg + 6.25 * body.heightCm - 5 * body.age;
+  return Math.round(base + MIFFLIN_SEX_CONSTANT[body.sex]);
 }
 
-/** Total Daily Energy Expenditure = BMR * activity multiplier. */
-export function calculateTDEE(
-  _body: BodyMetrics,
-  _goals: GoalSettings,
+/**
+ * Maintenance calories (a.k.a. TDEE) = BMR × activity multiplier.
+ */
+export function calculateMaintenanceCalories(
+  body: BodyMetrics,
+  activityLevel: ActivityLevel,
 ): number {
-  // TODO: calculateBMR(body) * ACTIVITY_MULTIPLIERS[goals.activityLevel]
-  throw new Error('calculateTDEE not implemented');
+  return Math.round(calculateBMR(body) * ACTIVITY_MULTIPLIERS[activityLevel]);
 }
 
-/** Derive the full nutrition target set (calories + macros) for a user. */
+/** Maintenance − 500 kcal. */
+export function calculateFatLossCalories(maintenanceCalories: number): number {
+  return maintenanceCalories + GOAL_CALORIE_DELTAS.lose_fat;
+}
+
+/** Maintenance + 300 kcal. */
+export function calculateLeanBulkCalories(maintenanceCalories: number): number {
+  return maintenanceCalories + GOAL_CALORIE_DELTAS.build_muscle;
+}
+
+/**
+ * Final daily calorie target = maintenance + the fixed delta for the goal.
+ */
+export function calculateGoalCalories(
+  maintenanceCalories: number,
+  goalType: GoalType,
+): number {
+  return maintenanceCalories + GOAL_CALORIE_DELTAS[goalType];
+}
+
+/**
+ * The full set of comparison calorie figures (BMR, maintenance, fat loss,
+ * lean bulk) for a user. Useful for dashboards and goal-selection UIs.
+ */
+export function calculateCaloriePlan(
+  body: BodyMetrics,
+  activityLevel: ActivityLevel,
+): CaloriePlan {
+  const bmr = calculateBMR(body);
+  const maintenanceCalories = Math.round(
+    bmr * ACTIVITY_MULTIPLIERS[activityLevel],
+  );
+  return {
+    bmr,
+    maintenanceCalories,
+    fatLossCalories: calculateFatLossCalories(maintenanceCalories),
+    leanBulkCalories: calculateLeanBulkCalories(maintenanceCalories),
+  };
+}
+
+/**
+ * Macro targets from a calorie goal and bodyweight:
+ *   - Protein: 2 g/kg
+ *   - Fat:     0.8 g/kg
+ *   - Carbs:   remaining calories ÷ 4
+ *
+ * Carbs are floored at zero so an unusually low target never goes negative.
+ */
+export function calculateMacros(
+  targetCalories: number,
+  weightKg: number,
+): Macros {
+  const proteinG = Math.round(PROTEIN_G_PER_KG * weightKg);
+  const fatG = Math.round(FAT_G_PER_KG * weightKg);
+
+  const proteinKcal = proteinG * KCAL_PER_GRAM.protein;
+  const fatKcal = fatG * KCAL_PER_GRAM.fat;
+  const remainingKcal = Math.max(0, targetCalories - proteinKcal - fatKcal);
+  const carbsG = Math.round(remainingKcal / KCAL_PER_GRAM.carbs);
+
+  return { proteinG, carbsG, fatG };
+}
+
+/**
+ * Derive the complete, persistable nutrition target set for a user from their
+ * body metrics and goal settings. Returns everything except the document
+ * identity/timestamps, which the persistence layer fills in.
+ */
 export function calculateNutritionTargets(
-  _body: BodyMetrics,
-  _goals: GoalSettings,
+  body: BodyMetrics,
+  goals: GoalSettings,
 ): Omit<NutritionTargets, 'id' | 'userId' | 'createdAt' | 'updatedAt'> {
-  // TODO: combine TDEE, CALORIE_ADJUSTMENTS and MACRO_SPLITS.
-  throw new Error('calculateNutritionTargets not implemented');
+  const maintenanceCalories = calculateMaintenanceCalories(
+    body,
+    goals.activityLevel,
+  );
+  const targetCalories = calculateGoalCalories(maintenanceCalories, goals.type);
+  const macros = calculateMacros(targetCalories, body.currentWeightKg);
+
+  return {
+    maintenanceCalories,
+    calorieAdjustment: GOAL_CALORIE_DELTAS[goals.type],
+    targetCalories,
+    macros,
+    effectiveFrom: toISO(),
+  };
 }
 
-/** Estimate calories burned for a workout from MET, weight and duration. */
-export function estimateWorkoutCalories(_params: {
+/**
+ * Estimate expected weekly weight change (kg) from a daily calorie adjustment,
+ * using ~7700 kcal per kg of body fat. Negative = loss, positive = gain.
+ */
+export function estimateWeeklyWeightChangeKg(calorieAdjustment: number): number {
+  const weeklyKcal = calorieAdjustment * 7;
+  return weeklyKcal / KCAL_PER_KG_FAT;
+}
+
+/**
+ * Estimate calories burned for a workout using the MET formula:
+ *   kcal = MET × 3.5 × kg / 200 × minutes
+ */
+export function estimateWorkoutCalories(params: {
   metValue: number;
   weightKg: number;
   durationMinutes: number;
 }): number {
-  // TODO: MET * 3.5 * kg / 200 * minutes
-  throw new Error('estimateWorkoutCalories not implemented');
+  const { metValue, weightKg, durationMinutes } = params;
+  return Math.round((metValue * 3.5 * weightKg) / 200 * durationMinutes);
 }

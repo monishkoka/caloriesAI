@@ -31,6 +31,8 @@ export interface DailyMetrics extends Timestamps {
   steps: number;
   activeEnergyKcal: number;
   workoutCount: number;
+  /** Total logged workout duration for the day, in minutes. */
+  workoutMinutes: number;
 
   // Body ------------------------------------------------------------------
   /** Weight logged on this day, if any. */
